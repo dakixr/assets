@@ -15,22 +15,24 @@ from datetime import datetime
 
 
 def get_opencode_dirs():
-    """Get the OpenCode config and cache directories using Path.home()."""
+    """Get the OpenCode config, cache, and bun cache directories using Path.home()."""
     home = Path.home()
     config_dir = home / ".config" / "opencode"
     cache_dir = home / ".cache" / "opencode"
-    return config_dir, cache_dir
+    bun_cache_dir = home / ".bun" / "install" / "cache"
+    return config_dir, cache_dir, bun_cache_dir
 
 
 def collect(output_file=None):
     """Collect OpenCode directories and create a zip backup."""
-    config_src, cache_src = get_opencode_dirs()
+    config_src, cache_src, bun_cache_src = get_opencode_dirs()
 
     # Create a temporary directory for staging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = Path(f"opencode_backup_{timestamp}")
     config_dest = backup_dir / "config"
     cache_dest = backup_dir / "cache"
+    bun_cache_dest = backup_dir / "bun_cache"
 
     try:
         # Create backup directory structure
@@ -49,6 +51,13 @@ def collect(output_file=None):
             shutil.copytree(cache_src, cache_dest)
         else:
             print(f"Warning: {cache_src} does not exist")
+
+        # Copy bun cache directory
+        if bun_cache_src.exists():
+            print(f"Copying {bun_cache_src} to {bun_cache_dest}...")
+            shutil.copytree(bun_cache_src, bun_cache_dest)
+        else:
+            print(f"Warning: {bun_cache_src} does not exist")
 
         # Create zip file
         if output_file is None:
@@ -78,7 +87,7 @@ def collect(output_file=None):
 
 def export(zip_file):
     """Export (restore) OpenCode directories from a zip backup."""
-    config_dest, cache_dest = get_opencode_dirs()
+    config_dest, cache_dest, bun_cache_dest = get_opencode_dirs()
 
     if not Path(zip_file).exists():
         print(f"Error: Zip file not found: {zip_file}")
@@ -118,6 +127,18 @@ def export(zip_file):
             shutil.copytree(cache_src, cache_dest)
         else:
             print(f"Warning: cache directory not found in zip file")
+
+        # Restore bun cache directory
+        bun_cache_src = temp_dir / "bun_cache"
+        if bun_cache_src.exists():
+            if bun_cache_dest.exists():
+                print(f"Removing existing {bun_cache_dest}...")
+                shutil.rmtree(bun_cache_dest)
+            print(f"Restoring {bun_cache_src} to {bun_cache_dest}...")
+            bun_cache_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(bun_cache_src, bun_cache_dest)
+        else:
+            print(f"Warning: bun_cache directory not found in zip file")
 
         print(f"✓ Export completed successfully")
 
