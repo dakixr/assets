@@ -8,12 +8,17 @@ Supports two modes:
 import argparse
 import os
 import shutil
-import subprocess
 import sys
 import zipfile
 from pathlib import Path
 from datetime import datetime
 import requests
+
+try:
+    import pyzipper
+    HAS_PYZIPPER = True
+except ImportError:
+    HAS_PYZIPPER = False
 
 
 def get_opencode_dirs():
@@ -115,22 +120,28 @@ def collect(output_file=None, password=None):
         else:
             zip_filename = output_file
 
-        # Use system zip command for password protection if password is provided
+        # Create password-protected or regular zip file
         if password:
-            print(f"Creating password-protected zip file: {zip_filename}...")
-            # Change to backup directory and create password-protected zip
-            try:
-                subprocess.run(
-                    ["zip", "-r", "-P", password, f"../{zip_filename}", "."],
-                    cwd=backup_dir,
-                    check=True,
-                    capture_output=True
-                )
-                print(f"✓ Password protection applied")
-            except subprocess.CalledProcessError as e:
-                print(f"Error creating password-protected zip: {e}")
-                print(f"Falling back to unprotected zip...")
+            if not HAS_PYZIPPER:
+                print("Warning: pyzipper not installed. Install with: pip install pyzipper")
+                print("Falling back to unprotected zip...")
                 password = None
+            else:
+                print(f"Creating password-protected zip file: {zip_filename}...")
+                with pyzipper.AESZipFile(
+                    zip_filename,
+                    'w',
+                    compression=pyzipper.ZIP_DEFLATED,
+                    encryption=pyzipper.WZ_AES
+                ) as zipf:
+                    zipf.setpassword(password.encode())
+                    # Walk through the backup directory and add all files
+                    for root, dirs, files in os.walk(backup_dir):
+                        for file in files:
+                            file_path = Path(root) / file
+                            arcname = file_path.relative_to(backup_dir)
+                            zipf.write(file_path, arcname)
+                print(f"✓ Password protection applied (AES-256)")
 
         if not password:
             print(f"Creating zip file: {zip_filename}...")
@@ -170,18 +181,21 @@ def export(zip_file, password=None):
         temp_dir.mkdir(exist_ok=True)
 
         if password:
-            # Use system unzip command for password-protected archives
             print(f"Extracting password-protected zip file: {zip_file}...")
-            try:
-                subprocess.run(
-                    ["unzip", "-P", password, "-d", str(temp_dir), zip_file],
-                    check=True,
-                    capture_output=True
-                )
-                print(f"✓ Successfully extracted with password")
-            except subprocess.CalledProcessError as e:
-                print(f"Error extracting password-protected zip: {e}")
-                print("Trying with Python's zipfile module...")
+            if HAS_PYZIPPER:
+                try:
+                    with pyzipper.AESZipFile(zip_file, 'r') as zipf:
+                        zipf.setpassword(password.encode())
+                        zipf.extractall(temp_dir)
+                    print(f"✓ Successfully extracted with password")
+                except RuntimeError as e:
+                    # pyzipper failed, try standard zipfile for legacy ZipCrypto
+                    print("Trying legacy ZipCrypto extraction...")
+                    with zipfile.ZipFile(zip_file, 'r') as zipf:
+                        zipf.extractall(temp_dir, pwd=password.encode())
+                    print(f"✓ Successfully extracted with password")
+            else:
+                # Fallback to standard zipfile (only supports ZipCrypto)
                 with zipfile.ZipFile(zip_file, 'r') as zipf:
                     zipf.extractall(temp_dir, pwd=password.encode())
                 print(f"✓ Successfully extracted with password")
