@@ -1,6 +1,6 @@
 """
-Script to download the latest Windows binaries for:
-  - Claude Code (via npm pack)
+Script to download the latest Windows .exe binaries for:
+  - Claude Code (from GitHub releases)
   - OpenCode (from GitHub releases)
   - Codex (from GitHub releases)
 
@@ -12,7 +12,7 @@ Usage:
 """
 
 import argparse
-import subprocess
+import hashlib
 import sys
 from pathlib import Path
 
@@ -58,74 +58,71 @@ def get_github_latest_release(owner: str, repo: str) -> dict | None:
 
 
 def download_claude() -> bool:
-    """
-    Download Claude Code for Windows.
-
-    Claude Code is distributed via npm. We use npm pack to download the tarball,
-    then extract the standalone Windows executable if available.
-    """
+    """Download the latest Claude Code Windows .exe from GCS distribution bucket."""
     print("\n" + "=" * 60)
     print("CLAUDE CODE")
     print("=" * 60)
 
-    # Check if npm is available
-    try:
-        result = subprocess.run(
-            ["npm", "--version"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        print(f"  npm version: {result.stdout.strip()}")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("  Error: npm is not installed or not in PATH")
-        print("  Install Node.js from https://nodejs.org/ to get npm")
-        return False
+    GCS_BUCKET = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+    PLATFORM = "win32-x64"
 
-    # Get the latest version info
-    print("  Fetching latest version from npm...")
+    # Get latest version
     try:
-        result = subprocess.run(
-            ["npm", "view", "@anthropic-ai/claude-code", "version"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        version = result.stdout.strip()
+        print("  Fetching latest version...")
+        response = requests.get(f"{GCS_BUCKET}/latest")
+        response.raise_for_status()
+        version = response.text.strip()
         print(f"  Latest version: {version}")
-    except subprocess.CalledProcessError as e:
-        print(f"  Error fetching version: {e}")
+    except Exception as e:
+        print(f"  Error fetching latest version: {e}")
         return False
 
-    # Download the package tarball
-    print("  Downloading package...")
+    # Get manifest for checksum
     try:
-        result = subprocess.run(
-            ["npm", "pack", "@anthropic-ai/claude-code"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        tarball_name = result.stdout.strip()
-        print(f"  Downloaded: {tarball_name}")
-
-        # Rename to a more descriptive name
-        tarball_path = Path(tarball_name)
-        new_name = f"claude-code-{version}-npm.tgz"
-        if tarball_path.exists():
-            tarball_path.rename(new_name)
-            print(f"  Renamed to: {new_name}")
-
-        print(f"  Claude Code {version} downloaded successfully")
-        return True
-
-    except subprocess.CalledProcessError as e:
-        print(f"  Error downloading package: {e}")
+        print("  Fetching manifest...")
+        response = requests.get(f"{GCS_BUCKET}/{version}/manifest.json")
+        response.raise_for_status()
+        manifest = response.json()
+        checksum = manifest.get("platforms", {}).get(PLATFORM, {}).get("checksum")
+        if not checksum:
+            print(f"  Error: Platform {PLATFORM} not found in manifest")
+            return False
+        print(f"  Expected checksum: {checksum[:16]}...")
+    except Exception as e:
+        print(f"  Error fetching manifest: {e}")
         return False
+
+    # Download binary
+    download_url = f"{GCS_BUCKET}/{version}/{PLATFORM}/claude.exe"
+    output_path = Path("claude.exe")
+
+    success = download_file(download_url, output_path, f"Claude Code {version}")
+
+    if not success:
+        return False
+
+    # Verify checksum
+    print("  Verifying checksum...")
+    sha256_hash = hashlib.sha256()
+    with open(output_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256_hash.update(chunk)
+    actual_checksum = sha256_hash.hexdigest().lower()
+
+    if actual_checksum != checksum.lower():
+        print(f"  Error: Checksum verification failed!")
+        print(f"    Expected: {checksum}")
+        print(f"    Actual:   {actual_checksum}")
+        output_path.unlink()
+        return False
+
+    print(f"  Checksum verified")
+    print(f"  Claude Code {version} downloaded successfully")
+    return True
 
 
 def download_opencode() -> bool:
-    """Download the latest OpenCode Windows release from GitHub."""
+    """Download the latest OpenCode Windows .exe from GitHub releases."""
     print("\n" + "=" * 60)
     print("OPENCODE")
     print("=" * 60)
@@ -137,13 +134,27 @@ def download_opencode() -> bool:
     version = release_data.get("tag_name", "unknown")
     print(f"  Latest version: {version}")
 
-    # Find Windows asset
+    # Find Windows .exe asset (prefer x64)
     windows_asset = None
+    fallback_zip = None
+
     for asset in release_data.get("assets", []):
         name = asset["name"].lower()
-        if "windows" in name and name.endswith(".zip"):
-            windows_asset = asset
-            break
+        # Prefer .exe files
+        if "windows" in name and name.endswith(".exe"):
+            if "x64" in name or "x86_64" in name or "amd64" in name:
+                windows_asset = asset
+                break
+            elif windows_asset is None:
+                windows_asset = asset
+        # Track .zip as fallback
+        elif "windows" in name and name.endswith(".zip") and fallback_zip is None:
+            fallback_zip = asset
+
+    # Use .zip fallback if no .exe found
+    if not windows_asset and fallback_zip:
+        windows_asset = fallback_zip
+        print("  Note: No .exe found, falling back to .zip")
 
     if not windows_asset:
         print("  Error: No Windows release found in latest release")
@@ -159,6 +170,12 @@ def download_opencode() -> bool:
     success = download_file(download_url, output_path, f"OpenCode {version}")
 
     if success:
+        # Rename .exe to simpler name
+        if output_path.suffix == ".exe":
+            simple_name = "opencode.exe"
+            if output_path.name != simple_name:
+                output_path.rename(simple_name)
+                print(f"  Renamed to: {simple_name}")
         print(f"  OpenCode {version} downloaded successfully")
 
     return success
