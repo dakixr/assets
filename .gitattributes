@@ -1,3 +1,6 @@
 claude.exe filter=lfs diff=lfs merge=lfs -text
 opencode-windows-x64.zip filter=lfs diff=lfs merge=lfs -text
+opencode-windows-*.zip filter=lfs diff=lfs merge=lfs -text
+codex.exe filter=lfs diff=lfs merge=lfs -text
+claude-code-*.tgz filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
