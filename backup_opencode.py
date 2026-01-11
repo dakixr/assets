@@ -12,7 +12,6 @@ import sys
 import zipfile
 from pathlib import Path
 from datetime import datetime
-import requests
 
 try:
     import pyzipper
@@ -30,56 +29,8 @@ def get_opencode_dirs():
     return config_dir, cache_dir, bun_cache_dir
 
 
-def download_opencode_windows_release():
-    """Download the latest OpenCode Windows release from GitHub."""
-    print("Fetching latest OpenCode release from GitHub...")
-
-    api_url = "https://api.github.com/repos/sst/opencode/releases/latest"
-
-    try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        release_data = response.json()
-
-        # Find Windows asset
-        windows_asset = None
-        for asset in release_data.get("assets", []):
-            if "windows" in asset["name"].lower() and asset["name"].endswith(".zip"):
-                windows_asset = asset
-                break
-
-        if not windows_asset:
-            print("Warning: No Windows release found in latest release")
-            return None
-
-        asset_name = windows_asset["name"]
-        download_url = windows_asset["browser_download_url"]
-
-        print(f"Downloading {asset_name}...")
-
-        # Download the file
-        asset_response = requests.get(download_url, stream=True)
-        asset_response.raise_for_status()
-
-        output_path = Path(asset_name)
-
-        with open(output_path, 'wb') as f:
-            for chunk in asset_response.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        print(f"✓ Downloaded {asset_name}")
-        return output_path
-
-    except Exception as e:
-        print(f"Error downloading OpenCode release: {e}")
-        return None
-
-
 def collect(output_file=None, password=None):
     """Collect OpenCode directories and create a zip backup."""
-    # Download latest OpenCode Windows release
-    opencode_release = download_opencode_windows_release()
-
     config_src, cache_src, bun_cache_src = get_opencode_dirs()
 
     # Create a temporary directory for staging
@@ -155,8 +106,6 @@ def collect(output_file=None, password=None):
                         zipf.write(file_path, arcname)
 
         print(f"✓ Collection completed successfully: {zip_filename}")
-        if opencode_release:
-            print(f"✓ OpenCode Windows release downloaded: {opencode_release}")
         return zip_filename
 
     finally:
