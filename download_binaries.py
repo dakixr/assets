@@ -3,18 +3,21 @@ Script to download the latest Windows .exe binaries for:
   - Claude Code (from GitHub releases)
   - OpenCode (from GitHub releases)
   - Codex (from GitHub releases)
+  - Zed (from GitHub releases)
 
 Usage:
   python download_binaries.py           # Download all
   python download_binaries.py claude    # Download only Claude
   python download_binaries.py opencode  # Download only OpenCode
   python download_binaries.py codex     # Download only Codex
+  python download_binaries.py zed       # Download only Zed
 """
 
 import argparse
 import hashlib
 import sys
 from pathlib import Path
+import zipfile
 
 import requests
 
@@ -134,51 +137,106 @@ def download_opencode() -> bool:
     version = release_data.get("tag_name", "unknown")
     print(f"  Latest version: {version}")
 
-    # Find Windows .exe asset (prefer x64)
-    windows_asset = None
-    fallback_zip = None
+    # Find Windows standalone assets (avoid desktop installer .exe)
+    windows_zip_assets = []
+    windows_exe_assets = []
+    installer_exe_assets = []
 
     for asset in release_data.get("assets", []):
         name = asset["name"].lower()
-        # Prefer .exe files
-        if "windows" in name and name.endswith(".exe"):
-            if "x64" in name or "x86_64" in name or "amd64" in name:
-                windows_asset = asset
+        if "windows" not in name:
+            continue
+        if name.endswith(".zip") and "desktop" not in name:
+            windows_zip_assets.append(asset)
+        elif name.endswith(".exe"):
+            if "desktop" in name:
+                installer_exe_assets.append(asset)
+            else:
+                windows_exe_assets.append(asset)
+
+    preferred_zip = None
+    for asset in windows_zip_assets:
+        name = asset["name"].lower()
+        if "x64" in name and "baseline" not in name:
+            preferred_zip = asset
+            break
+    if not preferred_zip:
+        for asset in windows_zip_assets:
+            name = asset["name"].lower()
+            if "x64" in name:
+                preferred_zip = asset
                 break
-            elif windows_asset is None:
-                windows_asset = asset
-        # Track .zip as fallback
-        elif "windows" in name and name.endswith(".zip") and fallback_zip is None:
-            fallback_zip = asset
+    if not preferred_zip and windows_zip_assets:
+        preferred_zip = windows_zip_assets[0]
 
-    # Use .zip fallback if no .exe found
-    if not windows_asset and fallback_zip:
-        windows_asset = fallback_zip
-        print("  Note: No .exe found, falling back to .zip")
+    preferred_exe = None
+    for asset in windows_exe_assets:
+        name = asset["name"].lower()
+        if "x64" in name or "x86_64" in name or "amd64" in name:
+            preferred_exe = asset
+            break
+    if not preferred_exe and windows_exe_assets:
+        preferred_exe = windows_exe_assets[0]
 
-    if not windows_asset:
-        print("  Error: No Windows release found in latest release")
-        print("  Available assets:")
-        for asset in release_data.get("assets", []):
-            print(f"    - {asset['name']}")
-        return False
+    if preferred_zip:
+        asset_name = preferred_zip["name"]
+        download_url = preferred_zip["browser_download_url"]
+        output_path = Path(asset_name)
+        success = download_file(download_url, output_path, f"OpenCode {version}")
+        if not success:
+            return False
 
-    asset_name = windows_asset["name"]
-    download_url = windows_asset["browser_download_url"]
+        print("  Extracting standalone executable...")
+        try:
+            with zipfile.ZipFile(output_path, "r") as zip_file:
+                exe_members = [
+                    name for name in zip_file.namelist()
+                    if name.lower().endswith(".exe") and "desktop" not in name.lower()
+                ]
+                if not exe_members:
+                    print("  Error: No .exe found inside the Windows zip")
+                    return False
+                exe_member = "opencode.exe"
+                if exe_member not in exe_members:
+                    exe_member = exe_members[0]
 
-    output_path = Path(asset_name)
-    success = download_file(download_url, output_path, f"OpenCode {version}")
+                output_exe_path = Path("opencode.exe")
+                with zip_file.open(exe_member) as src, open(output_exe_path, "wb") as dest:
+                    dest.write(src.read())
+        except Exception as e:
+            print(f"  Error extracting OpenCode zip: {e}")
+            return False
+        finally:
+            output_path.unlink(missing_ok=True)
 
-    if success:
-        # Rename .exe to simpler name
-        if output_path.suffix == ".exe":
+        print("  Extracted to: opencode.exe")
+        print(f"  OpenCode {version} downloaded successfully")
+        return True
+
+    if preferred_exe:
+        asset_name = preferred_exe["name"]
+        download_url = preferred_exe["browser_download_url"]
+        output_path = Path(asset_name)
+        success = download_file(download_url, output_path, f"OpenCode {version}")
+        if success:
             simple_name = "opencode.exe"
             if output_path.name != simple_name:
                 output_path.rename(simple_name)
                 print(f"  Renamed to: {simple_name}")
-        print(f"  OpenCode {version} downloaded successfully")
+            print(f"  OpenCode {version} downloaded successfully")
+        return success
 
-    return success
+    if installer_exe_assets:
+        print("  Error: Only installer .exe assets found; no standalone binary available")
+        for asset in installer_exe_assets:
+            print(f"    - {asset['name']}")
+        return False
+
+    print("  Error: No Windows release found in latest release")
+    print("  Available assets:")
+    for asset in release_data.get("assets", []):
+        print(f"    - {asset['name']}")
+    return False
 
 
 def download_codex() -> bool:
@@ -239,21 +297,59 @@ def download_codex() -> bool:
     return success
 
 
+def download_zed() -> bool:
+    """Download the latest Zed Windows .exe from GitHub releases."""
+    print("\n" + "=" * 60)
+    print("ZED")
+    print("=" * 60)
+
+    release_data = get_github_latest_release("zed-industries", "zed")
+    if not release_data:
+        return False
+
+    version = release_data.get("tag_name", "unknown")
+    print(f"  Latest version: {version}")
+
+    # Find Zed-x86_64.exe asset
+    target_asset = None
+    for asset in release_data.get("assets", []):
+        if asset["name"] == "Zed-x86_64.exe":
+            target_asset = asset
+            break
+
+    if not target_asset:
+        print("  Error: Zed-x86_64.exe not found in latest release")
+        print("  Available assets:")
+        for asset in release_data.get("assets", []):
+            print(f"    - {asset['name']}")
+        return False
+
+    download_url = target_asset["browser_download_url"]
+    output_path = Path("zed.exe")
+
+    success = download_file(download_url, output_path, f"Zed {version}")
+
+    if success:
+        print(f"  Zed {version} downloaded successfully")
+
+    return success
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Download latest Windows binaries for Claude, OpenCode, and Codex"
+        description="Download latest Windows binaries for Claude, OpenCode, Codex, and Zed"
     )
     parser.add_argument(
         "tools",
         nargs="*",
-        choices=["claude", "opencode", "codex"],
+        choices=["claude", "opencode", "codex", "zed"],
         help="Specific tools to download (default: all)"
     )
 
     args = parser.parse_args()
 
     # If no tools specified, download all
-    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex"]
+    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex", "zed"]
 
     print("Binary Downloader")
     print("=" * 60)
@@ -269,6 +365,9 @@ def main():
 
     if "codex" in tools_to_download:
         results["Codex"] = download_codex()
+
+    if "zed" in tools_to_download:
+        results["Zed"] = download_zed()
 
     # Summary
     print("\n" + "=" * 60)

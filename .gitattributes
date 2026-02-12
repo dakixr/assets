@@ -3,3 +3,4 @@ codex.exe filter=lfs diff=lfs merge=lfs -text
 opencode.exe filter=lfs diff=lfs merge=lfs -text
 opencode-windows-*.zip filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
+zed.exe filter=lfs diff=lfs merge=lfs -text
