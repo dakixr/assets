@@ -3,14 +3,11 @@ Script to download the latest Windows .exe binaries for:
   - Claude Code (from GitHub releases)
   - OpenCode (from GitHub releases)
   - Codex (from GitHub releases)
-  - Zed (from GitHub releases)
-
 Usage:
   python download_binaries.py           # Download all
   python download_binaries.py claude    # Download only Claude
   python download_binaries.py opencode  # Download only OpenCode
   python download_binaries.py codex     # Download only Codex
-  python download_binaries.py zed       # Download only Zed
 """
 
 import argparse
@@ -297,59 +294,21 @@ def download_codex() -> bool:
     return success
 
 
-def download_zed() -> bool:
-    """Download the latest Zed Windows .exe from GitHub releases."""
-    print("\n" + "=" * 60)
-    print("ZED")
-    print("=" * 60)
-
-    release_data = get_github_latest_release("zed-industries", "zed")
-    if not release_data:
-        return False
-
-    version = release_data.get("tag_name", "unknown")
-    print(f"  Latest version: {version}")
-
-    # Find Zed-x86_64.exe asset
-    target_asset = None
-    for asset in release_data.get("assets", []):
-        if asset["name"] == "Zed-x86_64.exe":
-            target_asset = asset
-            break
-
-    if not target_asset:
-        print("  Error: Zed-x86_64.exe not found in latest release")
-        print("  Available assets:")
-        for asset in release_data.get("assets", []):
-            print(f"    - {asset['name']}")
-        return False
-
-    download_url = target_asset["browser_download_url"]
-    output_path = Path("zed.exe")
-
-    success = download_file(download_url, output_path, f"Zed {version}")
-
-    if success:
-        print(f"  Zed {version} downloaded successfully")
-
-    return success
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Download latest Windows binaries for Claude, OpenCode, Codex, and Zed"
+        description="Download latest Windows binaries for Claude, OpenCode, and Codex"
     )
     parser.add_argument(
         "tools",
         nargs="*",
-        choices=["claude", "opencode", "codex", "zed"],
+        choices=["claude", "opencode", "codex"],
         help="Specific tools to download (default: all)"
     )
 
     args = parser.parse_args()
 
     # If no tools specified, download all
-    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex", "zed"]
+    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex"]
 
     print("Binary Downloader")
     print("=" * 60)
@@ -365,9 +324,6 @@ def main():
 
     if "codex" in tools_to_download:
         results["Codex"] = download_codex()
-
-    if "zed" in tools_to_download:
-        results["Zed"] = download_zed()
 
     # Summary
     print("\n" + "=" * 60)
