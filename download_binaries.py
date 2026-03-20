@@ -3,11 +3,13 @@ Script to download the latest Windows .exe binaries for:
   - Claude Code (from GitHub releases)
   - OpenCode (from GitHub releases)
   - Codex (from GitHub releases)
+  - T3 Code (from GitHub releases)
 Usage:
   python download_binaries.py           # Download all
   python download_binaries.py claude    # Download only Claude
   python download_binaries.py opencode  # Download only OpenCode
   python download_binaries.py codex     # Download only Codex
+  python download_binaries.py t3code    # Download only T3 Code
 """
 
 import argparse
@@ -294,21 +296,62 @@ def download_codex() -> bool:
     return success
 
 
+def download_t3code() -> bool:
+    """Download the latest T3 Code Windows .exe from GitHub releases."""
+    print("\n" + "=" * 60)
+    print("T3 CODE")
+    print("=" * 60)
+
+    release_data = get_github_latest_release("pingdotgg", "t3code")
+    if not release_data:
+        return False
+
+    version = release_data.get("tag_name", "unknown")
+    print(f"  Latest version: {version}")
+
+    # Find Windows x64 .exe asset
+    windows_exe = None
+    for asset in release_data.get("assets", []):
+        name = asset["name"].lower()
+        if name.endswith(".exe") and "x64" in name:
+            windows_exe = asset
+            break
+
+    if not windows_exe:
+        print("  Error: No Windows x64 .exe found in latest release")
+        print("  Available assets:")
+        for asset in release_data.get("assets", []):
+            print(f"    - {asset['name']}")
+        return False
+
+    download_url = windows_exe["browser_download_url"]
+    output_path = Path(windows_exe["name"])
+    success = download_file(download_url, output_path, f"T3 Code {version}")
+
+    if success:
+        simple_name = "t3code.exe"
+        output_path.rename(simple_name)
+        print(f"  Renamed to: {simple_name}")
+        print(f"  T3 Code {version} downloaded successfully")
+
+    return success
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Download latest Windows binaries for Claude, OpenCode, and Codex"
+        description="Download latest Windows binaries for Claude, OpenCode, Codex, and T3 Code"
     )
     parser.add_argument(
         "tools",
         nargs="*",
-        choices=["claude", "opencode", "codex"],
+        choices=["claude", "opencode", "codex", "t3code"],
         help="Specific tools to download (default: all)"
     )
 
     args = parser.parse_args()
 
     # If no tools specified, download all
-    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex"]
+    tools_to_download = args.tools if args.tools else ["claude", "opencode", "codex", "t3code"]
 
     print("Binary Downloader")
     print("=" * 60)
@@ -324,6 +367,9 @@ def main():
 
     if "codex" in tools_to_download:
         results["Codex"] = download_codex()
+
+    if "t3code" in tools_to_download:
+        results["T3 Code"] = download_t3code()
 
     # Summary
     print("\n" + "=" * 60)
